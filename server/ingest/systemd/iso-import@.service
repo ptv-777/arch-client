@@ -1,0 +1,10 @@
+
+[Unit]
+Description=ISO import service for %i
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -m server.ingest.ingest /mnt/iso/%i
+User=dicom
+Group=users

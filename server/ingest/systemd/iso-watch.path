@@ -1,0 +1,9 @@
+
+[Unit]
+Description=Watch INBOX_DIR for new ISO
+
+[Path]
+PathModified=/mnt/nas/inbox/+++
+
+[Install]
+WantedBy=multi-user.target
