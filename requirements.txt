@@ -11,3 +11,4 @@ requests==2.32.3
 # PySide6 6.7.3 is unavailable on newer Python releases (e.g., 3.13).
 # Pin to a build that ships manylinux and macOS wheels for modern Python.
 PySide6==6.9.2
+pycdlib==1.14.0
