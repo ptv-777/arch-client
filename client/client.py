@@ -1,6 +1,7 @@
 
 import sys, os, io, zipfile, tarfile, tempfile, subprocess, shutil, requests, time, re
 from pathlib import Path
+import pycdlib
 from PySide6.QtWidgets import (QApplication, QWidget, QLineEdit, QFormLayout, QPushButton,
                                QTableWidget, QTableWidgetItem, QFileDialog, QHBoxLayout, QMessageBox,
                                QLabel, QProgressBar)
@@ -168,6 +169,8 @@ class App(QWidget):
             return f"{suid}.tar"
         if "zstd" in ctype:
             return f"{suid}.tar.zst"
+        if "iso" in ctype:
+            return f"{suid}.iso"
         return f"{suid}.pkg"
 
     def _extract_package(self, pkg_path: Path, target_dir: Path) -> bool:
@@ -189,6 +192,8 @@ class App(QWidget):
             elif suffix.endswith(".zip"):
                 with zipfile.ZipFile(pkg_path, "r") as zf:
                     zf.extractall(path=target_dir)
+            elif suffix.endswith(".iso"):
+                self._extract_iso(pkg_path, target_dir)
             elif suffix.endswith(".tar") or suffix.endswith(".tgz") or suffix.endswith(".tar.gz"):
                 with tarfile.open(pkg_path, mode="r:*") as tf:
                     tf.extractall(path=target_dir)
@@ -206,6 +211,23 @@ class App(QWidget):
         self.progress.setFormat("Готово")
         self.status.setText(f"Распаковано в: {target_dir}")
         return True
+
+    def _extract_iso(self, iso_path: Path, target_dir: Path) -> None:
+        iso = pycdlib.PyCdlib()
+        iso.open(str(iso_path))
+        try:
+            for parent, dirs, files in iso.walk(iso_path="/"):
+                parent_rel = Path(parent.lstrip("/"))
+                for dname in dirs:
+                    (target_dir / parent_rel / dname).mkdir(parents=True, exist_ok=True)
+                for fname in files:
+                    iso_rel = Path("/") / parent_rel / fname
+                    dest_path = target_dir / parent_rel / fname
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(dest_path, "wb") as out_fp:
+                        iso.get_file_from_iso_fp(iso_path=str(iso_rel), outfp=out_fp)
+        finally:
+            iso.close()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
