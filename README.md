@@ -31,15 +31,22 @@
    ```
 
 ## Переменные окружения
-- `DB_URL` — строка подключения (SQLite или PostgreSQL), например:
+- `DB_URL` — строка подключения (SQLite / PostgreSQL / MySQL или MariaDB), например:
   - SQLite: `sqlite:///dicom_index.sqlite3`
   - PostgreSQL: `postgresql+psycopg2://user:pass@host:5432/dicom`
+  - MySQL/MariaDB: `mysql+pymysql://user:pass@host:3306/dicom?charset=utf8mb4`
 - `DICOM_ROOT` — корень канонического хранилища `/studies/...`
 - `CACHE_DIR` — каталог кэша архивов (`TAR.zst`)
 - `INBOX_DIR` — папка «+++» для ISO
 - `RADIANT_CMD` — команда запуска просмотрщика (если нужно автозапускать)
 
 Создайте `.env` на основе `.env.example` или экспортируйте переменные.
+
+### MySQL/MariaDB
+1. Драйвер уже в `requirements.txt` (`pymysql`). При использовании системного дистрибутива достаточно `pip install -r requirements.txt`.
+2. Укажите строку подключения в `DB_URL`, пример: `mysql+pymysql://user:pass@host:3306/dicom?charset=utf8mb4` (или `mariadb+pymysql://...`).
+3. Проинициализируйте схему под новую БД: `python scripts/init_db.py`, затем переиндексируйте каталог.
+4. Параметр `pool_pre_ping=True` в коде уже настроен, чтобы MySQL-пулы переживали обрывы соединений.
 
 ## Эндпоинты (MVP)
 - `GET /search?name=Иванов Иван&dob=19790101&sex=M&year=2024` → исследования (по `StudyInstanceUID`) с объёмами и количеством файлов.
