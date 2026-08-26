@@ -26,4 +26,5 @@ Thumbs.db
 *.sqlite3
 *.sqlite
 cache/
+downloads/
 tmp/

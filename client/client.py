@@ -1,12 +1,31 @@
 
-import sys, os, io, zipfile, tarfile, tempfile, subprocess, shutil, requests, time, re
+import os
+import re
+import subprocess
+import sys
+import time
 from pathlib import Path
-import pycdlib
-from PySide6.QtWidgets import (QApplication, QWidget, QLineEdit, QFormLayout, QPushButton,
-                               QTableWidget, QTableWidgetItem, QFileDialog, QHBoxLayout, QMessageBox,
-                               QLabel, QProgressBar)
-from PySide6.QtCore import Qt
+
+import requests
+from PySide6.QtWidgets import (
+    QApplication,
+    QFileDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QWidget,
+)
+
+from .archive import ArchiveError, UnsupportedArchiveError, extract_package
 from .config import API_BASE, DOWNLOAD_DIR, VIEWER_CMD
+from .files import safe_download_filename
+
 
 def human_mb(n):
     return f"{n/1024/1024:.1f} MB"
@@ -128,13 +147,14 @@ class App(QWidget):
 
         filename = self._resolve_filename(r, suid)
         pkg_path = Path(DOWNLOAD_DIR) / filename
+        partial_path = pkg_path.with_name(f"{pkg_path.name}.part")
         total = int(r.headers.get("Content-Length") or 0)
         if total:
             self.progress.setRange(0, 100)
             self.progress.setValue(0)
         downloaded = 0
         try:
-            with open(pkg_path, "wb") as f:
+            with open(partial_path, "wb") as f:
                 for chunk in r.iter_content(chunk_size=1024*1024):
                     if not chunk:
                         continue
@@ -145,6 +165,7 @@ class App(QWidget):
                         self.progress.setValue(min(pct, 100))
                         self.status.setText(f"Скачано {human_mb(downloaded)} из {human_mb(total)}")
                         QApplication.processEvents()
+            os.replace(partial_path, pkg_path)
         except Exception as e:
             self.progress.setRange(0, 100)
             self.progress.setValue(0)
@@ -161,17 +182,17 @@ class App(QWidget):
         cd = response.headers.get("Content-Disposition", "")
         m = re.search(r'filename="?([^";]+)"?', cd)
         if m:
-            return m.group(1)
+            return safe_download_filename(m.group(1), f"{suid}.pkg")
         ctype = response.headers.get("Content-Type", "")
         if "zip" in ctype:
-            return f"{suid}.zip"
+            return safe_download_filename(f"{suid}.zip")
         if "tar" in ctype:
-            return f"{suid}.tar"
+            return safe_download_filename(f"{suid}.tar")
         if "zstd" in ctype:
-            return f"{suid}.tar.zst"
+            return safe_download_filename(f"{suid}.tar.zst")
         if "iso" in ctype:
-            return f"{suid}.iso"
-        return f"{suid}.pkg"
+            return safe_download_filename(f"{suid}.iso")
+        return safe_download_filename(f"{suid}.pkg")
 
     def _extract_package(self, pkg_path: Path, target_dir: Path) -> bool:
         self.progress.setFormat("Распаковка %p%")
@@ -181,26 +202,14 @@ class App(QWidget):
         QApplication.processEvents()
 
         try:
-            suffix = "".join(pkg_path.suffixes).lower()
-            if suffix.endswith(".tar.zst"):
-                import zstandard as zstd
-                with open(pkg_path, "rb") as src:
-                    dctx = zstd.ZstdDecompressor()
-                    with dctx.stream_reader(src) as reader:
-                        with tarfile.open(fileobj=reader, mode="r|") as tf:
-                            tf.extractall(path=target_dir)
-            elif suffix.endswith(".zip"):
-                with zipfile.ZipFile(pkg_path, "r") as zf:
-                    zf.extractall(path=target_dir)
-            elif suffix.endswith(".iso"):
-                self._extract_iso(pkg_path, target_dir)
-            elif suffix.endswith(".tar") or suffix.endswith(".tgz") or suffix.endswith(".tar.gz"):
-                with tarfile.open(pkg_path, mode="r:*") as tf:
-                    tf.extractall(path=target_dir)
-            else:
-                QMessageBox.warning(self, "Неизвестный формат", f"Неизвестный тип архива: {pkg_path.name}")
-                return False
-        except Exception as e:
+            extract_package(pkg_path, target_dir)
+        except UnsupportedArchiveError as e:
+            self.progress.setRange(0, 100)
+            self.progress.setValue(0)
+            self.progress.setFormat("Ошибка")
+            QMessageBox.warning(self, "Неизвестный формат", str(e))
+            return False
+        except (ArchiveError, OSError) as e:
             self.progress.setRange(0, 100)
             self.progress.setValue(0)
             self.progress.setFormat("Ошибка")
@@ -212,24 +221,12 @@ class App(QWidget):
         self.status.setText(f"Распаковано в: {target_dir}")
         return True
 
-    def _extract_iso(self, iso_path: Path, target_dir: Path) -> None:
-        iso = pycdlib.PyCdlib()
-        iso.open(str(iso_path))
-        try:
-            for parent, dirs, files in iso.walk(iso_path="/"):
-                parent_rel = Path(parent.lstrip("/"))
-                for dname in dirs:
-                    (target_dir / parent_rel / dname).mkdir(parents=True, exist_ok=True)
-                for fname in files:
-                    iso_rel = Path("/") / parent_rel / fname
-                    dest_path = target_dir / parent_rel / fname
-                    dest_path.parent.mkdir(parents=True, exist_ok=True)
-                    with open(dest_path, "wb") as out_fp:
-                        iso.get_file_from_iso_fp(iso_path=str(iso_rel), outfp=out_fp)
-        finally:
-            iso.close()
 
-if __name__ == "__main__":
+def main():
     app = QApplication(sys.argv)
     w = App(); w.resize(1000, 600); w.show()
-    sys.exit(app.exec())
+    return app.exec()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

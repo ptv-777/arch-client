@@ -6,5 +6,8 @@ DICOM_ROOT = os.getenv("DICOM_ROOT", "./_demo_studies")
 CACHE_DIR = os.getenv("CACHE_DIR", "./cache")
 INBOX_DIR = os.getenv("INBOX_DIR", "./_inbox_plus")
 RADIANT_CMD = os.getenv("RADIANT_CMD", "RadiantViewer")
-
-os.makedirs(CACHE_DIR, exist_ok=True)
+CORS_ORIGINS = tuple(
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "").split(",")
+    if origin.strip()
+)
