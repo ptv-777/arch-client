@@ -1,22 +1,23 @@
 
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select, func
-from .db import SessionLocal, engine, Base, Patient, Study, Series, Instance
-from .utils import normalize_name
-from .packager import get_or_build_package
-from .config import DICOM_ROOT
+from sqlalchemy import func, select
 
-from typing import List, Dict
+from .config import CORS_ORIGINS
+from .db import Base, Instance, Patient, Series, SessionLocal, Study, engine
+from .packager import PackageBuildError, get_or_build_package
+from .repository import get_study_files
+from .utils import normalize_name
 
 app = FastAPI(title="DICOM Index & Packaging API")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+if CORS_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(CORS_ORIGINS),
+        allow_credentials=False,
+        allow_methods=["GET"],
+        allow_headers=["Authorization", "Content-Type", "Range"],
+    )
 
 # Создаём таблицы, если их нет
 Base.metadata.create_all(bind=engine)
@@ -58,7 +59,7 @@ def search(
         if year:
             q = q.where(Study.study_date.like(f"{year}%"))
         rows = s.execute(q).all()
-        out: List[Dict] = []
+        out: list[dict] = []
         for suid, sdate, files, bytes_ in rows:
             out.append({
                 "study_uid": suid,
@@ -70,14 +71,11 @@ def search(
 
 @app.get("/package")
 def package(study_uid: str = Query(...)):
-    # собираем пути файлов исследования
     with SessionLocal() as s:
-        q = (
-            select(Instance.path)
-            .join(Series, Series.series_uid == Instance.series_uid)
-            .where(Series.study_uid == study_uid)
-        )
-        paths = [r[0] for r in s.execute(q).scalars().all()]
-        if not paths:
+        files = get_study_files(s, study_uid)
+        if not files:
             raise HTTPException(404, detail="Study not found or empty")
-    return get_or_build_package(study_uid, paths)
+    try:
+        return get_or_build_package(study_uid, files)
+    except PackageBuildError as exc:
+        raise HTTPException(409, detail=str(exc)) from exc
